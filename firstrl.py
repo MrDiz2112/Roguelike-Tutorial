@@ -2,6 +2,7 @@ import libtcodpy as libtcod
 
 import math
 import textwrap
+import shelve
 
 # Screen settings
 SCREEN_WIDTH = 80
@@ -692,7 +693,10 @@ def place_objects(room):
 
 
 def make_map():
-    global map
+    global map, objects
+
+    # List of objects with the player
+    objects = [player]
 
     # fill map with "blocked" tiles
     map = [[Tile(True) for y in range(MAP_HEIGHT)] for x in range(MAP_WIDTH)]
@@ -798,6 +802,8 @@ def menu(header, options, width):
 
     # Calculate a total height for the header (after auto-wrap) and one lien per option
     header_height = libtcod.console_get_height_rect(con, 0, 0, width, SCREEN_HEIGHT, header)
+    if header == '':
+        header_height = 0
     height = len(options) + header_height
 
     # Create a new off-screen console represents the menu's window
@@ -825,12 +831,19 @@ def menu(header, options, width):
     libtcod.console_flush()
     key = libtcod.console_wait_for_keypress(True)
 
+    if key.vk == libtcod.KEY_ENTER and key.lalt: #(special case) Alt+Enter: toggle fullscreen
+        libtcod.console_set_fullscreen(not libtcod.console_is_fullscreen())
+
     # Convert the ASCII code and index; if it corresponds to an option, return it
     index = key.c - ord('a')
     if index >= 0 and index < len(options):
         return index
 
     return None
+
+
+def msgbox(text, width=50):
+    menu(text, [], width) # Use menu() as a sort of "message box"
 
 
 def render_all():
@@ -902,7 +915,138 @@ def render_all():
 
 # Set up the game
 
-libtcod.console_set_custom_font('terminal8x8_gs_ro.png', libtcod.FONT_TYPE_GRAYSCALE | libtcod.FONT_LAYOUT_ASCII_INROW)
+def new_game():
+    global player, inventory, game_msgs, game_state
+
+    # Create Player Object
+    fighter_component = Fighter(hp=30, defence=2, power=5,
+                                death_function=player_death)
+    player = Object(0, 0, libtcod.CHAR_SMILIE, 'player', libtcod.white, blocks=True,
+                    fighter=fighter_component)
+
+    # generate map (at this point it's not drawn to the screen)
+    make_map()
+    initialize_fov()
+
+    game_state = 'playing'
+
+    inventory = []
+
+    # Create the list of game messages and their colors, starts empty
+    game_msgs = []
+
+    # a warm welcoming message!
+    message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
+
+
+def initialize_fov():
+    global fov_recompute, fov_map
+    fov_recompute = True
+
+    libtcod.console_clear(con)
+
+    # create the FOV map, according to the generated map
+    fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
+    for y in range(MAP_HEIGHT):
+        for x in range(MAP_WIDTH):
+            libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
+
+
+def play_game():
+    global key, mouse
+
+    player_action = None
+
+    mouse = libtcod.Mouse()
+    key = libtcod.Key()
+
+    while not libtcod.console_is_window_closed():
+        # render the screen
+        libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS | libtcod.EVENT_MOUSE, key, mouse)
+        render_all()
+
+        libtcod.console_flush()
+
+        # Erase all objects at their old locations, before they move
+        for object in objects:
+            object.clear()
+
+        # Handle keys and exit game if needed
+        player_action = handle_keys()
+        if player_action == 'exit':
+            save_game()
+            break
+
+        # Monsters take their turns
+        if game_state == 'playing' and player_action != 'didnt-take-turn':
+            for object in objects:
+                if object.ai:
+                    object.ai.take_turn()
+
+
+def save_game():
+    # Open a new empty shelve (possibly overwriting an old one) to write a game data
+    file = shelve.open('savegame', 'n')
+    file['map'] = map
+    file['objects'] = objects
+    file['player_index'] = objects.index(player) # index of player in objects list
+    file['inventory'] = inventory
+    file['game_msgs'] = game_msgs
+    file['game_state'] = game_state
+    file.close()
+
+
+def load_game():
+    # Open the previously saved shelve and load the game data
+    global map, objects, player, inventory, game_msgs, game_state
+
+    file = shelve.open('savegame', 'r')
+    map = file['map']
+    objects = file['objects']
+    player = objects[file['player_index']] # get index of player in objects list and access to it
+    inventory = file['inventory']
+    game_msgs = file['game_msgs']
+    game_state = file['game_state']
+    file.close()
+
+    initialize_fov()
+
+
+def main_menu():
+    img = libtcod.image_load('menu_background.png')
+
+    while not libtcod.console_is_window_closed():
+        # show the background image, at twice the regular console resolution
+        libtcod.image_blit_2x(img, 0, 0, 0)
+
+        # Show the game's title and some credits!
+        libtcod.console_set_default_foreground(0, libtcod.light_yellow)
+        libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 5, libtcod.BKGND_NONE,
+                                 libtcod.CENTER, 'TOMBS OF THE ANCIENT KINGS')
+        libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 3, libtcod.BKGND_NONE,
+                                 libtcod.CENTER, 'copied by Mister Diz ')
+
+        # show options and wait for the player's choice
+        choice = menu('', ['Play a new game', 'Continue last game', 'Quit'], 24)
+
+        if choice == 0:
+            new_game()
+            play_game()
+
+        if choice == 1: #Load last game
+            try:
+                load_game()
+            except:
+                msgbox('\n No saved game to load.\n', 24)
+                continue
+            play_game()
+
+        elif choice == 2:
+            break
+
+
+libtcod.console_set_custom_font('terminal8x8_gs_ro.png', libtcod.FONT_TYPE_GRAYSCALE
+                                | libtcod.FONT_LAYOUT_ASCII_INROW)
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'My first Roguelike', False)
 libtcod.sys_set_fps(LIMIT_FPS)
 
@@ -912,64 +1056,8 @@ con = libtcod.console_new(MAP_WIDTH, MAP_HEIGHT)
 # Console for GUI panel
 panel = libtcod.console_new(SCREEN_WIDTH, PANEL_HEIGHT)
 
-# Create Player Object
-fighter_component = Fighter(hp=30, defence=2, power=5,
-                            death_function=player_death)
-
-player = Object(0, 0, libtcod.CHAR_SMILIE, 'player', libtcod.white, blocks=True,
-                fighter=fighter_component)
-
-# List of objects
-objects = [player]
-
-# generate map (at this point it's not drawn to the screen)
-make_map()
-
-# create the FOV map, according to the generated map
-fov_map = libtcod.map_new(MAP_WIDTH, MAP_HEIGHT)
-for y in range(MAP_HEIGHT):
-    for x in range(MAP_WIDTH):
-        libtcod.map_set_properties(fov_map, x, y, not map[x][y].block_sight, not map[x][y].blocked)
-
-# Game variables
-game_state = 'playing'
-player_action = None
-fov_recompute = True
-
-inventory = []
-
-# Create the list of game messages and their colors, starts empty
-game_msgs = []
-
-# a warm welcoming message!
-message('Welcome stranger! Prepare to perish in the Tombs of the Ancient Kings.', libtcod.red)
-
-mouse = libtcod.Mouse()
-key = libtcod.Key()
-
-
 ######################################################################################
 # Main loop
 ######################################################################################
 
-while not libtcod.console_is_window_closed():
-    # render the screen
-    libtcod.sys_check_for_event(libtcod.EVENT_KEY_PRESS | libtcod.EVENT_MOUSE, key, mouse)
-    render_all()
-
-    libtcod.console_flush()
-
-    # Erase all objects at their old locations, before they move
-    for object in objects:
-        object.clear()
-
-    # Handle keys and exit game if needed
-    player_action = handle_keys()
-    if player_action == 'exit':
-        break
-
-    # Monsters take their turns
-    if game_state == 'playing' and player_action != 'didnt-take-turn':
-        for object in objects:
-            if object.ai:
-                object.ai.take_turn()
+main_menu()
