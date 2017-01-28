@@ -11,5 +11,6 @@ It's my copy of Complete Roguelike Tutorial from roguebasin.com with graphical t
 * Graphical tiles
 
 ## Screnshots
-![](http://i.imgur.com/VrgnqDV.png) 
-![](http://i.imgur.com/qIeJ1iN.png)
+![1](http://i.imgur.com/VrgnqDV.png) 
+
+![2](http://i.imgur.com/qIeJ1iN.png)
