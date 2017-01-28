@@ -6,15 +6,11 @@ import shelve
 
 # Screen settings
 SCREEN_WIDTH = 80
-SCREEN_HEIGHT = 50
+SCREEN_HEIGHT = 40
 
 # Map settings
 MAP_WIDTH = 100
 MAP_HEIGHT = 100
-
-# size of the map portion shown on-screen
-CAMERA_WIDTH = 80
-CAMERA_HEIGHT = 43
 
 # Sizes and coordinates relevant for the GUI
 
@@ -26,6 +22,10 @@ PANEL_Y = SCREEN_HEIGHT - PANEL_HEIGHT
 INVENTORY_WIDTH = 50
 LEVEL_SCREEN_WIDTH = 40
 CHARACTER_SCREEN_WIDTH = 30
+
+# size of the map portion shown on-screen
+CAMERA_WIDTH = SCREEN_WIDTH
+CAMERA_HEIGHT = SCREEN_HEIGHT - PANEL_HEIGHT
 
 # Message bar constants
 MSG_X = BAR_WIDTH + 2
@@ -63,6 +63,20 @@ FIREBALL_DAMAGE = 25
 # experience and level-ups
 LEVEL_UP_BASE = 200
 LEVEL_UP_FACTOR = 150
+
+# Tile codes
+wall_tile = 256
+floor_tile = 257
+player_tile = 258
+orc_tile = 259
+troll_tile = 260
+scroll_tile = 261
+healingpotion_tile = 262
+sword_tile = 263
+shield_tile = 264
+stairsdown_tile = 265
+dagger_tile = 266
+dead_tile = 267
 
 ##############################################################################
 # Basic Classes
@@ -791,16 +805,16 @@ def player_death(player):
     game_state = 'dead'
 
     # transform player into a corpse
-    player.char = '%'
-    player.color = libtcod.dark_red
+    player.char = dead_tile
+    player.color = libtcod.white
 
 
 def monster_death(monster):
     # transform it into a nasty corpse! it doesn't block, can't be
     # attacked and doesn't move
     message(monster.name.capitalize() + ' is dead! You gain ' + str(monster.fighter.xp) + ' XP.', libtcod.orange)
-    monster.char = '%'
-    monster.color = libtcod.dark_red
+    monster.char = dead_tile
+    monster.color = libtcod.white
     monster.blocks = False
     monster.fighter = None
     monster.ai = None
@@ -877,7 +891,7 @@ def place_objects(room):
                                             death_function=monster_death)
                 ai_component = BasicMonster()
 
-                monster = Object(x, y, 'o', 'orc', libtcod.desaturated_green,
+                monster = Object(x, y, orc_tile, 'orc', libtcod.white,
                                  blocks=True, fighter=fighter_component, ai=ai_component)
 
             elif choice == 'troll':
@@ -886,7 +900,7 @@ def place_objects(room):
                                             death_function=monster_death)
                 ai_component = BasicMonster()
 
-                monster = Object(x, y, 'T', 'troll', libtcod.black,
+                monster = Object(x, y, troll_tile, 'troll', libtcod.white,
                                  blocks=True, fighter=fighter_component, ai=ai_component)
 
             objects.append(monster)
@@ -910,27 +924,27 @@ def place_objects(room):
             if choice == 'heal':
                 # create a healing potion
                 item_component = Item(use_function=cast_heal)
-                item = Object(x, y, '!', 'healing potion', libtcod.red, item=item_component)
+                item = Object(x, y, healingpotion_tile, 'healing potion', libtcod.white, item=item_component)
 
             elif choice == 'lightning':
                 # create a lightning scroll
                 item_component = Item(use_function=cast_lightning)
-                item = Object(x, y, '#', 'lightning scroll', libtcod.light_yellow, item=item_component)
+                item = Object(x, y, scroll_tile, 'lightning scroll', libtcod.white, item=item_component)
 
             elif choice == 'fireball':
                 # create a fireball scroll
                 item_component = Item(use_function=cast_fireball)
-                item = Object(x, y, '#', 'fireball scroll', libtcod.light_yellow, item=item_component)
+                item = Object(x, y, scroll_tile, 'fireball scroll', libtcod.white, item=item_component)
 
             elif choice == 'confuse':
                 # create a confusion scroll
                 item_component = Item(use_function=cast_confuse)
-                item = Object(x, y, '#', 'confuse scroll', libtcod.light_yellow, item=item_component)
+                item = Object(x, y, scroll_tile, 'confuse scroll', libtcod.white, item=item_component)
 
             elif choice == 'sword':
                 # create a sword
                 equipment_component = Equipment(slot='right hand', power_bonus=3)
-                item = Object(x, y, '/', 'sword', libtcod.sky, equipment=equipment_component)
+                item = Object(x, y, sword_tile, 'sword', libtcod.white, equipment=equipment_component)
 
             elif choice == 'shield':
                 # create a shield
@@ -1010,7 +1024,7 @@ def make_map():
             num_rooms += 1
 
     # Create a stairs at the center of last room
-    stairs = Object(new_x, new_y, '<', 'stairs', libtcod.white, always_visible=True)
+    stairs = Object(new_x, new_y, stairsdown_tile, 'stairs', libtcod.white, always_visible=True)
     objects.append(stairs)
     stairs.send_to_back() # Draw it below monsters
 
@@ -1149,6 +1163,17 @@ def msgbox(text, width=50):
     menu(text, [], width) # Use menu() as a sort of "message box"
 
 
+def load_custom_font():
+    # The index of the first custom tile in the file
+    a = 256
+
+    # The "y" is the row index, here we load the sixth
+    # row in the font file. Increase the "6" to load any new rows from the file
+    for y in range(5, 6):
+        libtcod.console_map_ascii_codes_to_font(a, 32, 0, y)
+        a += 32
+
+
 def render_all():
     global fov_map
     global color_dark_wall, color_light_wall
@@ -1174,14 +1199,14 @@ def render_all():
                 if map[map_x][map_y].explored:
                     # it's out of the player's FOV
                     if wall:
-                        libtcod.console_set_char_background(con, x, y, color_dark_wall, libtcod.BKGND_SET)
+                        libtcod.console_put_char_ex(con, x, y, wall_tile, libtcod.gray, libtcod.black)
                     else:
-                        libtcod.console_set_char_background(con, x, y, color_dark_ground, libtcod.BKGND_SET)
+                        libtcod.console_put_char_ex(con, x, y, floor_tile, libtcod.gray, libtcod.black)
             else:
                 if wall:
-                    libtcod.console_set_char_background(con, x, y, color_light_wall, libtcod.BKGND_SET)
+                    libtcod.console_put_char_ex(con, x, y, wall_tile, libtcod.white, libtcod.black)
                 else:
-                    libtcod.console_set_char_background(con, x, y, color_light_ground, libtcod.BKGND_SET)
+                    libtcod.console_put_char_ex(con, x, y, floor_tile, libtcod.white, libtcod.black)
                 map[map_x][map_y].explored = True
 
     # draw all objects in the objects list
@@ -1230,7 +1255,7 @@ def new_game():
     # Create Player Object
     fighter_component = Fighter(hp=100, defence=1, power=4, xp=0,
                                 death_function=player_death)
-    player = Object(0, 0, libtcod.CHAR_SMILIE, 'player', libtcod.white, blocks=True,
+    player = Object(0, 0, player_tile, 'player', libtcod.white, blocks=True,
                     fighter=fighter_component)
 
     player.level = 1
@@ -1252,7 +1277,7 @@ def new_game():
 
     # initial started equipment: a dagger
     equipment_component = Equipment(slot='right hand', power_bonus=1)
-    obj = Object(0, 0, '-', 'dagger', libtcod.sky, equipment=equipment_component)
+    obj = Object(0, 0, dagger_tile, 'dagger', libtcod.sky, equipment=equipment_component)
     inventory.append(obj)
     equipment_component.equip()
     obj.always_visible = True
@@ -1374,8 +1399,9 @@ def main_menu():
             break
 
 
-libtcod.console_set_custom_font('terminal8x8_gs_ro.png', libtcod.FONT_TYPE_GRAYSCALE
-                                | libtcod.FONT_LAYOUT_ASCII_INROW)
+libtcod.console_set_custom_font('TiledFont.png', libtcod.FONT_TYPE_GRAYSCALE
+                                | libtcod.FONT_LAYOUT_TCOD, 32, 10)
+
 libtcod.console_init_root(SCREEN_WIDTH, SCREEN_HEIGHT, 'My first Roguelike', False)
 libtcod.sys_set_fps(LIMIT_FPS)
 
@@ -1389,5 +1415,6 @@ panel = libtcod.console_new(SCREEN_WIDTH, PANEL_HEIGHT)
 # Main loop
 ######################################################################################
 
+load_custom_font()
 
 main_menu()
